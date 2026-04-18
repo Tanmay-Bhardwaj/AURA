@@ -1,0 +1,6 @@
+{
+  "name": "Project AURA",
+  "description": "Adaptive Universal Recognition Architecture — a futuristic hotel intelligence prototype.",
+  "requestFramePermissions": ["camera", "microphone", "geolocation"],
+  "majorCapabilities": []
+}
