@@ -3,6 +3,8 @@ import { analyzeAura } from '../lib/gemini';
 
 export default function EmpathyEngine() {
   const [isListening, setIsListening] = useState(false);
+  const isListeningRef = useRef(false);
+  const [micError, setMicError] = useState<string | null>(null);
   const [transcript, setTranscript] = useState("");
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysisResult, setAnalysisResult] = useState<any>(null);
@@ -17,6 +19,7 @@ export default function EmpathyEngine() {
   const [isGeneratingSocialReport, setIsGeneratingSocialReport] = useState(false);
 
   const startListening = async () => {
+    setMicError(null);
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       streamRef.current = stream;
@@ -31,6 +34,7 @@ export default function EmpathyEngine() {
       analyserRef.current.fftSize = 256;
       
       setIsListening(true);
+      isListeningRef.current = true;
       drawWaveform();
 
       // Speech Recognition
@@ -38,36 +42,65 @@ export default function EmpathyEngine() {
       if (SpeechRecognition) {
         recognitionRef.current = new SpeechRecognition();
         recognitionRef.current.continuous = true;
-        recognitionRef.current.interimResults = true;
+        recognitionRef.current.interimResults = false;
         
         recognitionRef.current.onresult = (event: any) => {
           let currentTranscript = '';
           for (let i = event.resultIndex; i < event.results.length; ++i) {
-            currentTranscript += event.results[i][0].transcript;
+            currentTranscript += event.results[i][0].transcript + ' ';
           }
-          setTranscript(prev => prev + " " + currentTranscript);
+          setTranscript(prev => prev + currentTranscript);
+        };
+
+        recognitionRef.current.onerror = (event: any) => {
+          if (event.error === 'no-speech') {
+            // Ignore no-speech errors. The browser triggers this when it hears silence.
+            // Our onend handler will automatically restart the recognition.
+            return;
+          }
+          console.error("Speech recognition error:", event.error);
+        };
+
+        recognitionRef.current.onend = () => {
+          if (isListeningRef.current && recognitionRef.current) {
+            try {
+              recognitionRef.current.start();
+            } catch (err) {
+              console.error("Auto-restart failed", err);
+            }
+          }
         };
         
-        recognitionRef.current.start();
+        try {
+           recognitionRef.current.start();
+        } catch(e) {
+           console.error("Initial start failed", e);
+        }
       } else {
         setTranscript("Speech recognition not supported in this browser. Simulating input...");
         setTimeout(() => setTranscript("I've been waiting for my room for over an hour. This is unacceptable for a hotel of this supposed caliber."), 2000);
       }
 
-    } catch (err) {
+    } catch (err: any) {
       console.error("Error accessing microphone:", err);
+      setIsListening(false);
+      isListeningRef.current = false;
+      setMicError(err.message || "Microphone access denied. Please grant permission.");
     }
   };
 
   const stopListening = () => {
+    isListeningRef.current = false;
     if (streamRef.current) {
       streamRef.current.getTracks().forEach(track => track.stop());
     }
     if (audioContextRef.current) {
-      audioContextRef.current.close();
+      audioContextRef.current.close().catch(() => {});
     }
     if (recognitionRef.current) {
-      recognitionRef.current.stop();
+      try {
+        recognitionRef.current.stop();
+      } catch(e) {}
     }
     cancelAnimationFrame(animationRef.current);
     setIsListening(false);
@@ -145,6 +178,16 @@ export default function EmpathyEngine() {
           <div className="h-[1px] bg-aura-rule w-full mt-3 mb-6"></div>
           
           <div className="aura-card p-6 mb-6">
+            {micError && (
+              <div className="mb-6 p-4 border border-aura-warning bg-aura-warning/10 text-aura-warning">
+                <p className="font-source text-[0.95rem] leading-relaxed">
+                  <strong>Microphone Error:</strong> {micError}
+                </p>
+                <p className="font-source text-[0.85rem] mt-2 opacity-80">
+                  If you are in a preview iframe, you may need to grant microphone permissions or click "Open in New Tab" (top right) for the browser to allow microphone access.
+                </p>
+              </div>
+            )}
             <div className="flex space-x-4 mb-6">
               {!isListening ? (
                 <button onClick={startListening} className="aura-btn-primary">Begin Listening</button>
